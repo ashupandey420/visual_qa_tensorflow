@@ -1,0 +1,66 @@
+from contextlib import contextmanager
+import tensorflow as tf
+import numpy as np
+import os
+import shutil
+
+def average_gradients(tower_grads):
+    """ Calculate the average gradient for each shared variable across towers.
+    Note that this function provides a sync point across al towers.
+    Args:
+        tower_grads: List of lists of (gradient, variable) tuples. The outer
+        list is over individual gradients. The inner list is over the gradient
+        calculation for each tower.
+    Returns:
+        List of pairs of (gradient, variable) where the gradient has been
+        averaged across all towers.
+    """
+    with tf.name_scope('average_gradients'):
+        average_grads = []
+        for grad_and_vars in zip(*tower_grads):
+
+            # each grad is ((grad0_gpu0, var0_gpu0), ..., (grad0_gpuN, var0_gpuN))
+            grads = []
+            for g, _ in grad_and_vars:
+
+                # Add 0 dim to gradients to represent tower
+                expanded_g = tf.expand_dims(g, 0)
+
+                # Append on a 'tower' dimension that we will average over below
+                grads.append(expanded_g)
+
+            # Build the tensor and average along tower dimension
+            grad = tf.concat(grads, 0)
+            grad = tf.reduce_mean(grad, 0)
+
+            # The Variables are redundant because they are shared across towers
+            # just return first tower's pointer to the Variable
+            v = grad_and_vars[0][1]
+            grad_and_var = (grad, v)
+            average_grads.append(grad_and_var)
+        return average_grads
+    
+@contextmanager
+def variables_on_first_device(device_name):
+    old_fn = tf.get_variable
+    def new_fn(*args, **kwargs):
+        with tf.device(device_name):
+            return old_fn(*args, **kwargs)
+    tf.get_variable = new_fn
+    yield
+    tf.get_variable = old_fn
+    
+def scalar_summary(name, x):
+    try:
+        summ = tf.summary.scalar(name, x)
+    except AttributeError:
+        summ = tf.scalar_summary(name, x)
+    return summ
+
+def histogram_summary(name, x):
+    try:
+        summ = tf.summary.histogram(name, x)
+    except AttributeError:
+        summ = tf.histogram_summary(name, x)
+    return summ
+

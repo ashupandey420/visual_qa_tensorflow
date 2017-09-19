@@ -103,9 +103,9 @@ test_list = []
 for i, file in enumerate(data_train['unique_img_test']):
      test_list.append(os.path.join(img_dir, file))
 
-train_feat = batch_predict(train_list[0:100], net)
+train_feat = batch_predict(train_list, net)
 print ('train_feat', train_feat.shape)
-test_feat = batch_predict(test_list[0:100], net)
+test_feat = batch_predict(test_list, net)
 print ('test_feat', test_feat.shape)
 
 train_h5_file = h5py.File(args.out_name, "w")
