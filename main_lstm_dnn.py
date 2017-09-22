@@ -11,18 +11,23 @@ LSTM_LAYER_SIZE = 512
 NUM_HIDDEN_LAYER = 2
 HIDDEN_LAYER_SIZE = 1000
 OUT_LAYER_SIZE = 1000
-IMG_FEAT_SIZE = 1000
-MAX_QUES_LENGTH = 26
+IMG_FEAT_SIZE = 4096
+MAX_QUES_LENGTH = 25
 WORD_EMBED_SIZE = 300
 FINAL_FEAT_SIZE = 1024
 GPUS = ''
 IS_TRAIN = True
-INPUT_IMG_H5 = 'data_img.h5'
-INPUT_QUES_H5 = 'data_prepro.h5'
-INPUT_JSON = 'data_prepro.json'
-IS_TRAIN = True
-TFRECORDS_PATH = 'data.tfrecords'
+TFRECORDS_PATH = 'data1.tfrecords'
 SAVE_DIR = 'model'
+IS_BNORM = True
+VAL_PATH = 'val_data.npz'
+LBL_ENC_FILE = 'labelencoder.pkl'
+RESULT_PATH = 'results.txt'
+VOCAB_LIST = 'data/preprocessed/vocab_list.txt'
+LSTM_KEEP_PROB = 0.5
+HIDDEN_KEEP_PROB = 0.8
+USE_PEEPHOLES = True
+FEAT_JOIN = 'mul'
 def get_arguments():
     def _str_to_bool(s):
         """Convert string to bool (in argparse context)."""
@@ -55,18 +60,33 @@ def get_arguments():
     parser.add_argument('--final_feat_size', type=int, default=FINAL_FEAT_SIZE, help='Size of final feature.'
                         ' Default: ' + str(FINAL_FEAT_SIZE) + '.')
     parser.add_argument('--gpus', type=str, default=GPUS, help='List of GPUS to use. Default: ' + str(GPUS) + '.')
-    parser.add_argument('--input_img_h5', type=str, default=INPUT_IMG_H5, help='Input hdf5 file for image features.'
-                        'Default: ' + str(INPUT_IMG_H5) + '.')
-    parser.add_argument('--input_ques_h5', type=str, default=INPUT_QUES_H5, help='Input hdf5 file for question '
-                        'and answer data. Default: ' + str(INPUT_QUES_H5) + '.')
-    parser.add_argument('--input_json', type=str, default=INPUT_JSON, help='Input json file for question '
-                        'and answer index lookup. Default: ' + str(INPUT_JSON) + '.')
+ 
     parser.add_argument('--is_train', type=_str_to_bool, default=IS_TRAIN, help='Whether to train. '
                         'Default: ' + str(IS_TRAIN) + ', Train the network')
     parser.add_argument('--tfrecords_path', type=str, default=TFRECORDS_PATH, help='Path to tfrecord file. '
                         'Default: ' + str(TFRECORDS_PATH) + '.')
     parser.add_argument('--save_dir', type=str, default=SAVE_DIR, help='Directory path where to save model parameters. '
                         'Default: ' + str(SAVE_DIR) + '.')
+    parser.add_argument('--is_bnorm', type=_str_to_bool, default=IS_BNORM, help='Whether to use batch norm ' 
+                        'in fully connected layer or not. Default: ' + str(IS_TRAIN) + ', Train the network')
+    parser.add_argument('--val_path', type=str, default=VAL_PATH, help='Path for validation data. '
+                        'Default: ' + str(VAL_PATH) + '.')
+    parser.add_argument('--lbl_enc_file', type=str, default=LBL_ENC_FILE, help='Path for labelencoder.pkl. '
+                        'Default: ' + str(LBL_ENC_FILE) + '.')
+    parser.add_argument('--result_path', type=str, default=RESULT_PATH, help='Path for labelencoder.pkl. '
+                        'Default: ' + str(RESULT_PATH) + '.')
+    parser.add_argument('--vocab_list', type=str, default=VOCAB_LIST, help='Vocab list file. '
+                        'Default: ' + str(VOCAB_LIST) + '.')
+    parser.add_argument('--hidden_keep_prob', type=float, default=HIDDEN_KEEP_PROB, help='Dropout keep '
+                        'probability in hidden layers of feed forward net in '
+                        'question  Default: ' + str(HIDDEN_KEEP_PROB) + '.')
+    parser.add_argument('--lstm_keep_prob', type=float, default=LSTM_KEEP_PROB, help='Dropout keep '
+                        'probability in layers of lstm net. Default: ' + str(LSTM_KEEP_PROB) + '.')
+    parser.add_argument('--use_peepholes', type=_str_to_bool, default=USE_PEEPHOLES, help='Whether to  '
+                        'use peepholes in Lstm. Default: ' + str(USE_PEEPHOLES) + '.')
+    parser.add_argument('--feat_join', type=str, default=FEAT_JOIN, choices = ['mul', 'add','concat','outer_max'], 
+                        help='How to join the image and question features. Default: ' + str(RESULT_PATH) + '.')
+    
     args = parser.parse_args()
     return args
 

@@ -8,7 +8,9 @@ from data_helpers import *
 from tensorflow.contrib.layers import fully_connected
 from model_helpers import *
 from networks import QuestionEmbeddingNet, ImagePlusQuesFeatureNet, FeedForwardNet
+from progressbar import Bar, ETA, Percentage, ProgressBar
 import sys
+from sklearn.externals import joblib
 class LSTM_DNN(Model):
     def __init__(self, sess, devices, args, infer = False):
         super(LSTM_DNN, self).__init__('LSTM_DNN')
@@ -24,36 +26,37 @@ class LSTM_DNN(Model):
         self.img_feat_size = args.img_feat_size
         self.final_feat_size = args.final_feat_size
         self.max_ques_length = args.max_ques_length
-        self.vocab_size = get_vocab_size(args.input_json)
+        self.vocab_size = get_vocab_size(args.vocab_list)
         self.word_embed_size = args.word_embed_size
         self.out_layer_size = args.out_layer_size
         self.is_train = args.is_train
         self.save_path = args.save_dir
+        self.results_path = args.result_path
+        self.is_bnorm = args.is_bnorm
+        self.feat_join = args.feat_join
         self.tfrecords_path = args.tfrecords_path
-        if self.is_train:
-            self.hidden_keep_prob = tf.Variable(0.8, dtype = tf.float32,
+        self.labelencoder = joblib.load(args.lbl_enc_file)
+        
+        self.hidden_keep_prob = tf.Variable(args.hidden_keep_prob, dtype = tf.float32,
                                                 trainable = False, 
                                                 name = 'hidden_keep_prob')
-            self.lstm_keep_prob = tf.Variable(0.5, dtype = tf.float32, 
-                                              trainable = False, 
-                                              name = 'lstm_keep_prob')
-        else:
-            self.hidden_keep_prob = tf.Variable(1, dtype = tf.float32,
-                                                trainable = False, 
-                                                name = 'hidden_keep_prob')
-            self.lstm_keep_prob = tf.Variable(1, dtype = tf.float32, 
+        self.lstm_keep_prob = tf.Variable(args.lstm_keep_prob, dtype = tf.float32, 
                                               trainable = False, 
                                               name = 'lstm_keep_prob')
         self.is_vars_summ = True
         self.is_grads_summ = True
         self.optimizer = tf.train.AdamOptimizer(self.lr)
+        self.use_peepholes = args.use_peepholes
         self.ques_embed_net = QuestionEmbeddingNet(self.lstm_layer_size, 
-                                                   self.num_lstm_layer)
-        self.combine_feature =  ImagePlusQuesFeatureNet(self.final_feat_size, tf.tanh)
-        self.feed_fwd_net = FeedForwardNet()
+                                                   self.num_lstm_layer, self.use_peepholes, self.is_bnorm)
+        self.combine_feature =  ImagePlusQuesFeatureNet(self.final_feat_size, self.out_layer_size, 
+                                                        tf.tanh, self.feat_join, self.is_bnorm)
         self.build_model(devices, args)
         self.train_writer, self.val_writer = self.summary_writer(sess.graph)
         self.merge_summaries()
+        self.val_img, self.val_ques, self.val_ans = get_val_data(args.val_path)
+        
+        
        
     def build_model(self, devices, args):
         all_grads = []
@@ -87,7 +90,6 @@ class LSTM_DNN(Model):
             self.ques_embed = []
             self.final_img_feat = []
             self.final_ques_feat = []
-            self.final_feat = []
             self.out_logit = []
             self.loss = []
             self.indata = read_data(self.tfrecords_path, 
@@ -111,29 +113,34 @@ class LSTM_DNN(Model):
                                                       keep_prob = 1)
                 self.ques_embed_W = self.ques_embed_net.ques_embed_W
                 self.final_img_feat_test, self.final_ques_feat_test, \
-                self.final_feat_test = self.combine_feature(self.img[idx], self.ques_embed_test)
-                self.out_logit_test = self.feed_fwd_net(self.final_feat_test, self.num_hidden_layer,
-                                                       self.hidden_layer_size, self.out_layer_size, False, 1)
+                self.out_logit_test = self.combine_feature(self.img[idx], self.ques_embed_test, 
+                                                           is_train = False, 
+                                                           keep_prob = 1)
+                self.out_proba_test = tf.nn.softmax(self.out_logit_test)
+                self.val_accuracy = tf.placeholder(dtype = tf.float32, shape = ())
             tf.get_variable_scope().reuse_variables()
+            print(tf.get_variable_scope())
         with tf.name_scope('Train_Model'):
+            print(tf.get_variable_scope())
             ques_embed = self.ques_embed_net(self.ques[idx], 
                                                       self.vocab_size, 
                                                       self.word_embed_size,
                                                       self.max_ques_length, 
                                                       self.batch_size, 
                                                       is_train = True, 
-                                                      keep_prob = 0.5)
+                                                      keep_prob = self.lstm_keep_prob)
             final_img_feat, final_ques_feat, \
-            final_feat = self.combine_feature(self.img[idx], ques_embed)
-            out_logit = self.feed_fwd_net(final_feat, self.num_hidden_layer,
-                                          self.hidden_layer_size, 
-                                          self.out_layer_size, 
-                                          is_train = True, keep_prob = 0.8)
+            out_logit = self.combine_feature(self.img[idx], ques_embed, 
+                                              is_train = True, 
+                                              keep_prob = self.hidden_keep_prob)
+         
             self.ques_embed.append(ques_embed)
             self.final_img_feat.append(final_img_feat)
             self.final_ques_feat.append(final_ques_feat)
-            self.final_feat.append(final_feat)
             self.out_logit.append(out_logit)
+            if idx == 0:
+                self.out_proba_train = tf.nn.softmax(self.out_logit[0])
+            
            
         with tf.name_scope('cross_entropy_loss'):
             loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.out_logit[idx], 
@@ -157,7 +164,6 @@ class LSTM_DNN(Model):
               self.final_img_feat[idx].dtype)
         print('final_ques_feat', self.final_ques_feat[idx].get_shape().as_list(), 
               self.final_ques_feat[idx].dtype)
-        print('final_feat', self.final_feat[idx].get_shape().as_list(), self.final_feat[idx].dtype)
         print('out_logit', self.out_logit[idx].get_shape().as_list(), self.out_logit[idx].dtype)
         print('loss', self.loss[idx].get_shape().as_list(), self.loss[idx].dtype)
             
@@ -168,25 +174,34 @@ class LSTM_DNN(Model):
             print(var.name)
             self.vars_dict[var.name] = var
         self.vars = self.vars_dict.values()
+             
     def merge_summaries(self):
         with tf.name_scope('summaries'):
             self.loss_summ = []
-            for loss in self.loss:
-                self.loss_summ.append(scalar_summary('loss_summ', loss))
+            for idx, loss in enumerate(self.loss):
+                self.loss_summ.append(scalar_summary('device' + str(idx) + '/loss_summ', loss))
                 
             self.vars_summ = []
             if self.is_vars_summ:
                 for var in self.vars:
                     self.vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
-
             self.grads_summ = []
             if self.is_grads_summ:
                 for grad, var in self.avg_grads:
                     self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
-            self.pop_mean_summ = self.feed_fwd_net.batch_norm.pop_mean_summ
-            self.pop_var_summ = self.feed_fwd_net.batch_norm.pop_var_summ
+            self.val_accuracy_summ = scalar_summary('val_accuracy',  self.val_accuracy)
             summ_lst = self.vars_summ + self.grads_summ + \
-            self.loss_summ + self.pop_mean_summ + self.pop_var_summ
+            self.loss_summ 
+            if self.combine_feature.is_bnorm:       
+                self.pop_mean_summ = []
+                self.pop_var_summ = []
+                self.pop_mean = self.combine_feature.batch_norm.pop_mean
+                self.pop_var = self.combine_feature.batch_norm.pop_var
+            
+                for i in range(len(self.pop_mean)):
+                    self.pop_mean_summ.append(histogram_summary(self.pop_mean[i].name, self.pop_mean[i]))
+                    self.pop_var_summ.append(histogram_summary(self.pop_var[i].name, self.pop_var[i]))
+                summ_lst += self.pop_mean_summ + self.pop_var_summ
             self.summ = tf.summary.merge(summ_lst)
     def summary_writer(self, graph):
 
@@ -253,6 +268,16 @@ class LSTM_DNN(Model):
                     self.save(self.save_path, curr_epoch)
                     sess.run(self.increment_op)
                     self.train_writer.add_summary(_summ, sess.run(self.global_step))
+                    self.train_writer.flush()
+                    #val_accuracy_train = self.get_validation_score(1)
+                    if (curr_epoch % 5) == 4:
+                        val_accuracy_test = self.get_validation_score(0)
+                        val_summ_test = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_test})
+                        #val_summ_train = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_train})
+                        self.val_writer.add_summary(val_summ_test, sess.run(self.global_step))
+                        self.val_writer.flush()
+                        #self.train_writer.add_summary(val_summ_train, sess.run(self.global_step))
+                        #self.train_writer.flush()
                     
                     
                 else:
@@ -287,4 +312,103 @@ class LSTM_DNN(Model):
             coord.request_stop()
         coord.request_stop()
         coord.join(threads)
+        
+        
+        
+    def get_validation_score(self, is_train = False):
+        
+        print('validation started')
+        
+        y_predict_text = []
+        widgets = ['Evaluating ', Percentage(), ' ', Bar(marker='#',left='[',right=']'), ' ', ETA()]
+        pbar = ProgressBar(widgets=widgets)
+        for qu_batch, an_batch, im_batch in pbar(zip(grouper(self.val_ques, self.batch_size, fillvalue=self.val_ques[-1]),
+                                                   grouper(self.val_ans, self.batch_size, fillvalue=self.val_ans[-1]),
+                                                   grouper(self.val_img, self.batch_size, fillvalue=self.val_img[-1]))):
+            fdict = {}
+            fdict[self.img[0]] = im_batch
+            fdict[self.ques[0]] = qu_batch
+            if is_train:
+                y_proba = self.sess.run(self.out_proba_train, feed_dict = fdict)
+            else:
+                y_proba = self.sess.run(self.out_proba_test, feed_dict = fdict)
+            y_predict = y_proba.argmax(axis = -1)
+            y_predict_text.extend(self.labelencoder.inverse_transform(y_predict))
+       
+
+        correct_val = 0.0
+        total = 0.
+        binary_correct_val = 0.0
+        binary_total = 0.1
+        num_correct_val = 0.0
+        num_total = 0.1
+        other_correct_val = 0.0
+        other_total = 0.1
+        f1 = open(self.results_path, 'w')
+        for prediction, truth, question, image in zip(y_predict_text, self.val_ans, self.val_ques, self.val_img):
+            temp_count=0
+            for _truth in truth.split(';'):
+                if prediction == _truth:
+                    temp_count+=1
+            if temp_count>2:
+                correct_val+=1
+            else:
+                correct_val+=float(temp_count)/3
+
+            total += 1
+
+            binary_temp_count = 0
+            num_temp_count = 0
+            other_count = 0
+            if prediction == 'yes' or prediction == 'no':
+                for _truth in truth.split(';'):
+                    if prediction == _truth:
+                        binary_temp_count+=1
+                if binary_temp_count>2:
+                    binary_correct_val+=1
+                else:
+                    binary_correct_val+= float(binary_temp_count)/3
+                binary_total+=1
+            elif np.core.defchararray.isdigit(prediction):
+                for _truth in truth.split(';'):
+                    if prediction == _truth:
+                        num_temp_count+=1
+                if num_temp_count>2:
+                    num_correct_val+=1
+                else:
+                    num_correct_val+= float(num_temp_count)/3
+                num_total+=1
+            else:
+                for _truth in truth.split(';'):
+                    if prediction == _truth:
+                        other_count += 1
+                if other_count > 2:
+                    other_correct_val += 1
+                else:
+                    other_correct_val += float(other_count) / 3
+                other_total += 1
+
+            #f1.write(question.encode('utf-8'))
+            #f1.write('\n')
+            #f1.write(image.encode('utf-8'))
+            #f1.write('\n')
+            f1.write(prediction)
+            f1.write('\n')
+            f1.write(truth.encode('utf-8'))
+            f1.write('\n')
+            f1.write('\n')
+
+        f1.write('Final Accuracy is ' + str(correct_val/total))
+        f1.close()
+        f2 = open('overall_results.txt', 'a')
+        f2.write(str(correct_val/total) + '\n\n')
+        f2.write(str(binary_correct_val / binary_total) + '\n\n')
+        f2.write(str(num_correct_val / num_total) + '\n\n')
+        f2.write(str(other_correct_val / other_total) + '\n\n')
+        f2.close()
+
+        print 'Final Accuracy is', correct_val/total
+        return correct_val/total
+        
+        
         

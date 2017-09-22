@@ -15,7 +15,7 @@ class Model(object):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         if not hasattr(self, 'saver'):
-            self.saver = tf.train.Saver(keep_checkpoint_every_n_hours = 1, max_to_keep = 200)
+            self.saver = tf.train.Saver(keep_checkpoint_every_n_hours = 1, max_to_keep = 10)
         self.saver.save(self.sess,
                         os.path.join(save_path, model_name),
                         global_step=step)
