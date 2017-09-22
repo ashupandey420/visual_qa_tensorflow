@@ -68,10 +68,7 @@ class ImagePlusQuesFeatureNet:
         self.batch_norm = BatchNorm()
         self.feat_join = feat_join
     def __call__(self, img_inp, ques_inp, is_train = True, keep_prob = 0.5):
-        print img_inp
-        print ques_inp
-        print keep_prob
-        print is_train
+       
         with tf.variable_scope('feature_combination'):
             if is_train:
                 img_inp = tf.nn.dropout(img_inp, keep_prob = keep_prob)
