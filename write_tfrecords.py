@@ -8,7 +8,7 @@ from sklearn import preprocessing
 from progressbar import Bar, ETA, Percentage, ProgressBar 
 import tensorflow as tf
 from nltk.tokenize import word_tokenize
-
+import os
 def selectFrequentAnswers(questions_train, questions_lengths_train, answers_train, 
                           images_train, images_train_path, images_train_index,  
                           answers_train_all, max_answers):
@@ -98,7 +98,7 @@ print ('imag_train', len(images_train), images_train[0])
 print ('imag_train_path', len(images_train_path), images_train_path[0])
 print ('imag_train_index', len(images_train_index), images_train_index[0])
 print ('ans_train_all', len(answers_train_all), answers_train_all[0])
-max_answers = nb_classes
+max_answers = 1000
 questions_train, questions_lengths_train, answers_train, images_train, \
 images_train_path, images_train_index, answers_train_all = selectFrequentAnswers(questions_train, 
                                                              questions_lengths_train, 
@@ -154,6 +154,11 @@ with open(vocab_file, 'w') as f:
 itow = {i+1:w for i,w in enumerate(vocab)} 
 wtoi = {w:i+1 for i,w in enumerate(vocab)} 
 
+ques_tokens_train_final = final_tokens(ques_tokens_train, counts, count_thr)
+print('ques_tokens_train_final', len(ques_tokens_train_final))
+
+ques_tokens_val_final = final_tokens(ques_tokens_val, counts, count_thr)
+print('ques_tokens_val_final', len(ques_tokens_val_final))
 
 ques_array_train = encode_questions(ques_tokens_train_final, wtoi, 25)
 ques_array_val = encode_questions(ques_tokens_val_final, wtoi, 25)
