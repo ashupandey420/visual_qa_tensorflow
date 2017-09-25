@@ -3,7 +3,12 @@ import tensorflow as tf
 import numpy as np
 import os
 import shutil
-
+def conv_layer(inputs, filter_shape, stride, name = 'conv_layer'):
+    with tf.variable_scope(name):
+        init = tf.contrib.layers.xavier_initializer()
+        filter1 = tf.get_variable(name = 'filt_weights', shape = filter_shape, dtype = tf.float32, initializer = init)
+        output = tf.nn.conv2d(inputs, filter1, strides = stride, padding = 'SAME')
+        return output
 def average_gradients(tower_grads):
     """ Calculate the average gradient for each shared variable across towers.
     Note that this function provides a sync point across al towers.
@@ -63,4 +68,5 @@ def histogram_summary(name, x):
     except AttributeError:
         summ = tf.histogram_summary(name, x)
     return summ
-
+def leakyrelu(x, alpha=0.3, name='lrelu'):
+    return tf.maximum(x, alpha * x, name=name)

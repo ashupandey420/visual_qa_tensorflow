@@ -6,6 +6,7 @@ import numpy as np
 from ops import *
 from model_helpers import *
 from tensorflow.contrib.layers import fully_connected
+import sys
 
 class QuestionEmbeddingNet:
     def __init__(self, lstm_layer_size, num_lstm_layer, use_peepholes = True, is_bnorm = True, name = 'ques_embed'):
@@ -75,17 +76,20 @@ class ImagePlusQuesFeatureNet:
                 ques_inp = tf.nn.dropout(ques_inp, keep_prob = keep_prob)
             if self.is_bnorm:
                 with tf.variable_scope('img_embed_W'):
-                    final_img_feat = affine_layer(img_inp, self.final_feat_size)
-                    final_img_feat = self.batch_norm(final_img_feat, is_train)
-                    final_image_feat = tf.tanh(final_img_feat) 
+                    with tf.variable_scope('hidden1'):
+                        final_img_feat = affine_layer(img_inp, self.final_feat_size)
+                        final_img_feat = self.batch_norm(final_img_feat, is_train)
+                        final_img_feat = tf.tanh(final_img_feat)
+                      
                 with tf.variable_scope('ques_embed_W'):
                     final_ques_feat = affine_layer(ques_inp, self.final_feat_size)
                     final_ques_feat = self.batch_norm(final_ques_feat, is_train)
                     final_ques_feat = tf.tanh(final_ques_feat)
+                
             else:
                 final_img_feat = fully_connected(img_inp, self.final_feat_size, 
                                                  self.activation_fn, 
-                                                 scope = 'img_embed_reduce_W')
+                                                 scope = 'img_embed_reduce_W1')
 
                 final_ques_feat = fully_connected(ques_inp, 
                                                   self.final_feat_size, 
@@ -97,22 +101,76 @@ class ImagePlusQuesFeatureNet:
                 final_feat = tf.add(final_img_feat, final_ques_feat )
             elif self.feat_join == 'concat':
                 final_feat = tf.concat([final_img_feat, final_ques_feat], axis = 1)
-            elif self.feat_join == 'outer_max':
-                final_img_feat = tf.expand_dims(final_img_feat, 2)
+            elif self.feat_join == 'outer':
+                init1 = tf.random_uniform_initializer(-0.08, 0.08)
+                final_feat1 = tf.multiply(final_img_feat, final_ques_feat)
+                with tf.variable_scope('reduce_img'):
+                    final_img_feat1 = tf.tanh(final_img_feat)
+                    final_img_feat1 = tf.nn.dropout(final_img_feat1, keep_prob=0.5)
+                    final_img_feat1 = affine_layer(final_img_feat1, 32)
+                    final_img_feat1 = self.batch_norm(final_img_feat1, is_train)
+                    final_img_feat1 = tf.expand_dims(final_img_feat1, -1)
+                with tf.variable_scope('reduce_ques'):   
+                    final_ques_feat1 = tf.tanh(final_ques_feat)
+                    inal_ques_feat1 = tf.nn.dropout(final_ques_feat1, keep_prob=0.5)
+                    final_ques_feat1 = affine_layer(final_ques_feat1, 32)
+                    final_ques_feat1 = self.batch_norm(final_ques_feat1, is_train)
+                    final_ques_feat1 = tf.expand_dims(final_ques_feat1, 1)
+                print('final_img_feat1 -> ', final_img_feat1.get_shape().as_list())
+                print('final_ques_feat1 -> ', final_ques_feat1.get_shape().as_list())
+                outer_mat = tf.matmul(final_img_feat1, final_ques_feat1)
+                print('outer_mat -> ', outer_mat.get_shape().as_list())
+                outer_mat = tf.reshape(outer_mat, [-1, 1024])
+                print('outer_mat_reshaped -> ', outer_mat.get_shape().as_list())
+                final_feat = tf.concat([final_feat1, outer_mat], axis = 1)
+                print('final_feat -> ', outer_mat.get_shape().as_list())
+                
+                
+             
+            elif self.feat_join == 'outer_conv':
+                #final_feat1 = tf.multiply(final_img_feat, final_ques_feat )
+                final_img_feat = tf.expand_dims(final_img_feat, -1)
                 final_ques_feat = tf.expand_dims(final_ques_feat, 1)
-                final_feat = tf.matmul(final_img_feat, final_ques_feat)
-                final_feat = tf.reduce_max(final_feat, axis = 1)
+                outer_mat = tf.matmul(final_img_feat, final_ques_feat)
+                init = tf.contrib.layers.xavier_initializer()
+                channel_list = [1, 2, 2, 4, 4, 8, 8, 16]
+                final_conv_feat = tf.expand_dims(outer_mat, -1)
+                for i in range(len(channel_list) -1):
+                    with tf.variable_scope('conv_layer_' + str(i+1)):
+                        final_conv_feat = conv_layer(final_conv_feat, [5, 5,channel_list[i], channel_list[i + 1]],
+                                                     [1, 2, 2, 1])
+                        print('output size after conv layer ' + str(i + 1) + '-> ', final_conv_feat.get_shape().as_list())
+                        final_conv_feat = tf.tanh(final_conv_feat)
+                        final_conv_feat = self.batch_norm(final_conv_feat, is_train)
+                        final_conv_feat = tf.nn.dropout(final_conv_feat, keep_prob = keep_prob)
+                final_conv_feat = tf.reshape(final_conv_feat, [-1, 1024])
+                #final_feat = tf.concat([final_feat1, final_conv_feat], axis = 1)
+                final_feat = final_conv_feat
+             
+                       
+                  
             print('final_feat', final_feat.get_shape().as_list(), final_feat.dtype)
-            if is_train:
-                final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
+            
+            #if is_train:
+                #final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
             init = tf.random_uniform_initializer(-0.08, 0.08)
             if self.is_bnorm:
                 with tf.variable_scope('multi_model_W'):
-                    final_feat = affine_layer(final_feat, self.out_layer_size)
-                    final_feat = self.batch_norm(final_feat, is_train)
+                    
+                    with tf.variable_scope('hidden0'):
+                        final_feat = affine_layer(final_feat, final_feat.get_shape().as_list()[1])
+                        final_feat = self.batch_norm(final_feat, is_train)
+                        final_feat = tf.tanh(final_feat)
+                        final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
+                    
+                    with tf.variable_scope('hidden1'):
+                        final_feat = affine_layer(final_feat, self.out_layer_size)
+                        final_feat = self.batch_norm(final_feat, is_train)
             else:
-                final_feat = fully_connected(final_feat, self.out_layer_size, activation_fn = None,
+                final_feat = fully_connected(final_feat, 1024, activation_fn = None,
                                                  weights_initializer = init, scope = 'multi_modal_W')
+                final_feat = fully_connected(final_feat, self.out_layer_size, activation_fn = None,
+                                                 weights_initializer = init, scope = 'multi_modal_W1')
             return final_img_feat, final_ques_feat, final_feat
         
 class BatchNorm:

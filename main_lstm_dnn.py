@@ -84,7 +84,8 @@ def get_arguments():
                         'probability in layers of lstm net. Default: ' + str(LSTM_KEEP_PROB) + '.')
     parser.add_argument('--use_peepholes', type=_str_to_bool, default=USE_PEEPHOLES, help='Whether to  '
                         'use peepholes in Lstm. Default: ' + str(USE_PEEPHOLES) + '.')
-    parser.add_argument('--feat_join', type=str, default=FEAT_JOIN, choices = ['mul', 'add','concat','outer_max'], 
+    parser.add_argument('--feat_join', type=str, default=FEAT_JOIN, choices = ['mul', 'add','concat', 
+                                                                               'outer', 'outer_conv'], 
                         help='How to join the image and question features. Default: ' + str(RESULT_PATH) + '.')
     
     args = parser.parse_args()

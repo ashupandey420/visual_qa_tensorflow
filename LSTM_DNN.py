@@ -270,7 +270,7 @@ class LSTM_DNN(Model):
                     self.train_writer.add_summary(_summ, sess.run(self.global_step))
                     self.train_writer.flush()
                     #val_accuracy_train = self.get_validation_score(1)
-                    if (curr_epoch % 5) == 4:
+                    if True:#(curr_epoch % 5) == 4:
                         val_accuracy_test = self.get_validation_score(0)
                         val_summ_test = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_test})
                         #val_summ_train = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_train})
