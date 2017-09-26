@@ -128,7 +128,7 @@ class ImagePlusQuesFeatureNet:
                 
              
             elif self.feat_join == 'outer_conv':
-                #final_feat1 = tf.multiply(final_img_feat, final_ques_feat )
+                final_feat1 = tf.multiply(final_img_feat, final_ques_feat )
                 final_img_feat = tf.expand_dims(final_img_feat, -1)
                 final_ques_feat = tf.expand_dims(final_ques_feat, 1)
                 outer_mat = tf.matmul(final_img_feat, final_ques_feat)
@@ -140,12 +140,14 @@ class ImagePlusQuesFeatureNet:
                         final_conv_feat = conv_layer(final_conv_feat, [5, 5,channel_list[i], channel_list[i + 1]],
                                                      [1, 2, 2, 1])
                         print('output size after conv layer ' + str(i + 1) + '-> ', final_conv_feat.get_shape().as_list())
-                        final_conv_feat = tf.tanh(final_conv_feat)
+                        
                         final_conv_feat = self.batch_norm(final_conv_feat, is_train)
-                        final_conv_feat = tf.nn.dropout(final_conv_feat, keep_prob = keep_prob)
+                        final_conv_feat = leakyrelu(final_conv_feat)
+                        if (i == 3) or (i == 6):
+                            final_conv_feat = tf.nn.dropout(final_conv_feat, keep_prob = keep_prob)
                 final_conv_feat = tf.reshape(final_conv_feat, [-1, 1024])
                 #final_feat = tf.concat([final_feat1, final_conv_feat], axis = 1)
-                final_feat = final_conv_feat
+                final_feat = final_conv_feat + final_feat1
              
                        
                   
@@ -160,7 +162,7 @@ class ImagePlusQuesFeatureNet:
                     with tf.variable_scope('hidden0'):
                         final_feat = affine_layer(final_feat, final_feat.get_shape().as_list()[1])
                         final_feat = self.batch_norm(final_feat, is_train)
-                        final_feat = tf.tanh(final_feat)
+                        final_feat = leakyrelu(final_feat)
                         final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
                     
                     with tf.variable_scope('hidden1'):
